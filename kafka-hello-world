@@ -1,0 +1,271 @@
+"""
+    Apache Kafka Short Documentation
+    Owner: Samarth D M
+    Last updated:2020-03-31
+
+"""
+
+Kafka Topics:
+* stream of data
+* like a table in the database
+* as many topics as we want
+* Identified by it's `name`
+* Any kind of message format
+* data Stream = sequence of messages
+* Can't query topics. Use Producers to send data and Consumers to read the data
+* Split into Partitions
+      1) Messages within partitions are ordered
+      2) Each message within partition gets an incremental_id called `Offsets`
+
+
+Partitions & Offsets:
+* Topics are immutable [data can't be changed once written into the partition]
+* Data in Kafka is kept for a limited time [one week default - can be
+configured]
+* Offsets have meaning only for a specific partition
+      1) e.g:- Offset 3 in Partition 0 isn't same as Offset 3 in Partition 1
+      2) Offsets aren't reused even if previous messages  are deleted
+* Order of messages are guaranteed only within a partition [not across
+partitions]
+* Data is randomly assigned to a partition unless a key is provided [If key then
+it goes to the partition that has the same key]
+
+
+Producers & Message Keys:
+* Producers write to Topics [Partitions within Topics]
+* Producers know in advance which Partition to write to [and which Broker has
+it]
+* In case of Broker failures, Producers will automatically recover
+* This also leads to Load-Balancing across many Brokers thanks to Partitions
+
+* Producers can choose to send a key [str, num, bool, etc] within the message
+* If key=null, data is sent round-robin
+* If key!=null, data is sent to the same Partition because of hashing
+* Keys are sent if you need message ordering
+* Messages anatomy
+
+                ---------------------------------------------
+                |     Key             |         Value        |
+                ---------------------------------------------
+                | Compression Type [None, gzip, snappy, etc] |
+                ---------------------------------------------
+                |            Headers[Optional]               |   ------> Kafka
+                ---------------------------------------------
+                |            Partitions+Offsets              |
+                ---------------------------------------------
+                |            Timestamp[system or user set]   |
+                ---------------------------------------------
+
+
+Kafka Message Serializer:
+* Kafka accepts only bytes as input and from Producers and sends bytes out as
+output to the Consumers
+* When we construct the message, they aren't serialized. We need to serialize
+objects and messages to send it into the Topics/Partitions.
+        1) e.g:- Key Object(123) --(int)-->IntegerSerializer--(bytes)-->01110011
+        [Binary-Key]
+        Value Object("Hello World") --(str)-->StringSerializer--(bytes)-->011100
+        1111000011000000[Binary-Value]
+        2) examples of common serializers: String(JSON), int, float, Avro,
+        Protobuf
+
+NOTE:
+* A Kafka Partitioner is a code logic that takes a record and determines to
+which Partition to send it into
+
+                          |Producer        |
+        Record--.send()-->|Partitionerlogic|--AssignPartition 1---->Partition 1
+
+* Key hashing is a process of mapping of a key to a Partition
+* In default Kafka Partitioner, the keys are hashed using `murmur2algorithm`
+
+  | "targetPartition=Math.abs(Utils.murmur2(keyBytes) % (numPartitions - 1))" |
+
+
+Brokers:
+* A Kafka cluster is composed of multiple brokers (servers)
+* Each Broker is identified with it's ID(integer)
+* Each broker contains certain topic partitions
+* After connecting to any broker (called a bootstrap broker), you will be
+connected to the entire cluster
+
++----------------------+   +----------------------+   +----------------------+
+|      Kafka Broker 1  |   |      Kafka Broker 2  |   |      Kafka Broker 3  |
++----------------------+   +----------------------+   +----------------------+
+|   Topic A:           |   |   Topic A:           |   |   Topic A:           |
+|   - Partition 0      |   |   - Partition 1      |   |   - Partition 2      |
+|                      |   |                      |   |                      |
+|   Topic B:           |   |   Topic B:           |   |   Topic B:           |
+|   - Partition 0      |   |   - Partition 1      |   |   - Partition 2      |
++----------------------+   +----------------------+   +----------------------+
+
+* This way we increase the number of brokers and topics to `horizontally scale`
+* Kafka client connects to the bootstrap that returns a list of all brokers and
+partitions. Then using this, we can connect to the required broker to get the
+partition required
+* Each broker knows about all the other brokers, topics and partitions
+
+* A Kafka Broker is a server instance within the Kafka Cluster
+* Brokers are responsible for storing and managing data(messages) that are
+published to the Topics
+* They serve as endpoints for Producers and Consumers, handling the actual
+storage, retrieval, and transmission of messages
+* Kafka clusters consist of multiple Brokers that work together to provide
+fault-tolerance, scalability, and high availability
+
+
+Consumers & Deserialization:
+* Consumers read data from a topic with pull model[it requests data from a
+Topic]. This means that Topics aren't pushing data to Consumers, instead the
+Consumers are requesting for the data
+* Consumers know in advance which broker to read from
+* In case of broker failures, consumers know how to recover
+* Consumers read data in order(offset 0 ...... offset n)
+* Consumer needs to know in advance what is the expected format of the key and
+value i.e within the Topic life cycle, we must not change the data type/format.
+Instead we create a new topic if the format/data type changes
+
+* Deserializer indicates how to transform bytes into objects/data
+* They are used on key and value of the messages
+        1) e.g:- Key-Binary--(bytes)-->IntegerDeserializer--(int)-->Key Object
+        (123)
+        Value-Binary--(bytes)-->StringDeserializer--(str)-->Value("Hello World")
+
+
+Consumers & Consumer Groups
+* All consumers in an application read data as consumer groups
+* Each consumer within a group reads from exclusive Partitions
+
+  | Partition 1 |     | Partition 2 |    | Partition 3 |    | Partition 4 |
+         |                  |                    |                |
+         |         ---------          |----------|                |
+         |        |            |-------        |-------------------
+     ----------------------------------------------------
+    |    |        |            |               |         |
+    |  | Consumer 1 |   | Consumer 2 |   | Consumer 3 |  |
+    |                                                    |
+    |             consumer-group-application             |
+     ----------------------------------------------------
+
+*What if too many consumers more than partition?
+If you have more consumers than partitions, some consumers will be inactive
+
+* Multiple consumers on one topic?
+Yes, we can have that. We can have one consumer group for notification, other
+for location, etc. Each consumer in a consumer group has the ability to read
+from one or more partitions.
+
+      +--------------------------+
+      |       example_topic      |
+      +--------------------------+
+      | Partition 0 | Partition 1 | Partition 2 |
+      +--------------+ |              |              |              |
+      | Consumer     | |    CGroup1   |    CGroup2   |    CGroup3   |
+      | Group        | |              |              |              |
+      +--------------+ +--------------+--------------+--------------+
+      | Consumer 1   | |   Consumer   |   Consumer   |   Consumer   |
+      +--------------+ |      A       |      X       |      P       |
+      | Consumer 2   | |   Consumer   |   Consumer   |   Consumer   |
+      +--------------+ |      B       |      Y       |      Q       |
+      | Consumer 3   | |   Consumer   |   Consumer   |   Consumer   |
+      +--------------+ |      C       |      Z       |      R       |
+
+* To create distinct consumers groups, use the consumer property `group.id`
+
+Consumer Offsets:
+* Kafka stores the offsets which a consumer has been reading
+* These offsets committed are in Kafka topic named `__consumer_offsets`
+* When a consumer in a group has processed data received from Kafka, it should
+periodically commit the offsets so that the consumer can start processing from
+that offset and not from the start when it restarts
+
+
+Topic Replication:
+* Topics should have a replication factor > 1 (usually 2 or 3). This way, if the
+broker is down, another broker can serve the data
+
++----------------------+   +----------------------+   +----------------------+
+|   Kafka Broker 1     |   |   Kafka Broker 2     |   |   Kafka Broker 3     |
++----------------------+   +----------------------+   +----------------------+
+|   Topic A:           |   |   Topic A:           |   |   Topic A: [REP]     |
+|   - Partition 0      |   |   - Partition 1      |   |   - Partition 1      |
+|                      |   |                      |   |                      |
+|                      |   |   Topic A: [REP]     |   |                      |
+|                      |   |    - Partition 0     |   |                      |
++----------------------+   +----------------------+   +----------------------+
+
+* This is an example of one replication. But ideally there should be 2 or more
+
++----------------------+   +----------------------+   +----------------------+
+|   Kafka Broker 1     |   |   Kafka Broker 2     |   |   Kafka Broker 3     |
++----------------------+   +----------------------+   +----------------------+
+|   Topic X:           |   |   Topic X:           |   |   Topic X:           |
+|   - Partition 0      |   |   - Partition 0      |   |   - Partition 0      |
+|       - Replica A    |   |       - Replica B    |   |       - Replica C    |
+|   - Partition 1      |   |   - Partition 1      |   |   - Partition 1      |
+|       - Replica B    |   |       - Replica C    |   |       - Replica A    |
++----------------------+   +----------------------+   +----------------------+
+
+* At anytime only one broker can be the leader for a given partition
+* Producers can only send data to the broker that is leader of a partition
+* The other brokers will replicate the data
+* Therefore, each  partition has one leader and multiple `ISR`[in-sync replicas]
+* Consumers by default read only from the leader
+* If one broker is down, the leader changes to the ISR
+
+NOTE:
+* Since Kafka 2.4, it is possible to configure consumers to read from the
+closest replica. This may help improve latency
+
+
+Producer Acknowledgements[acks]:
+* Producers can choose to receive acknowledgements of data writes:
+      1) acks=0: producer won't wait for acknowledgements[possible data loss]
+      2) acks=1: producer will wait for leader acknowledgement[limited data loss]
+      3) acks=all: leader + all replicas acknowledgement[no data loss]
+
+* As a rule, for replication factor of N, you can permanently lose up to N-1
+brokers and still recover your data
+
+
+Zookeeper:
+* Zookeeper manages Kafka brokers
+* It helps in performing leader electionfor partitions
+* It sends notification to Kafka in case of changes[like new topic, broker dies,
+broker comes back up, delete topics, etc]
+* Kafka 2.x can't work without Zookeeper
+* Kafka 3.x can work without Zookeeper - using Kafka Raft instead
+* Kafka 4.x will not have Zookeeper
+* Zookeeper, by design works with odd numbers of servers[1,3,5...]
+* Zookeeper has a leader[write] the rest of the servers are followers[read]
+
++------------------------+    +------------------------+    +------------------------+
+|   ZooKeeper Node 1     |    |   ZooKeeper Node 2     |    |   ZooKeeper Node 3     |
++------------------------+    +------------------------+    +------------------------+
+          |                                |                                |
+          v                                v                                v
++------------------------+    +------------------------+    +------------------------+
+|   Kafka Broker 1       |    |   Kafka Broker 2       |    |   Kafka Broker 3       |
++------------------------+    +------------------------+    +------------------------+
+|   Topic Y:             |    |   Topic Y:             |    |   Topic Y:             |
+|   - Partition 0        |    |   - Partition 0        |    |   - Partition 0        |
+|       - Replica A (L)  |    |       - Replica B      |    |       - Replica C      |
+|       - Replica B      |    |       - Replica C      |    |       - Replica A      |
+|   - Partition 1        |    |   - Partition 1        |    |   - Partition 1        |
+|       - Replica B      |    |       - Replica C (L)  |    |       - Replica A      |
+|       - Replica C      |    |       - Replica A      |    |       - Replica B      |
+|   - Partition 2        |    |   - Partition 2        |    |   - Partition 2        |
+|       - Replica C      |    |       - Replica A      |    |       - Replica B (L)  |
+|       - Replica A      |    |       - Replica B      |    |       - Replica C      |
++------------------------+    +------------------------+    +------------------------+
+
+
+Kafka KRaft:
+* Zookeeper shows scaling issues when clusters have > 100,000 partitions
+* By removing Zookeeper, Kafka can:
+        1) Scale to millions of partitions, and becomes easier to maintain and
+        set-up
+        2) Improve stability, makes it easier to monitor, support and administer
+        3) Single security model for the whole system
+        4) Single process to start with Kafka
+        5) Faster controller shut down and recovery time

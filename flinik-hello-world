@@ -1,0 +1,134 @@
+"""
+    Apache Kafka Short Documentation
+    Owner: Samarth D M
+    Last updated: 2024-04-17
+
+"""
+
+- Operator Subtasks and Stream Partitions
+
+* Operators that we define make up a DAG transforming the input stream until
+ the sink
+* The stream consists of a source operator, a sink operator and transform
+ operators [map(), keyBy(), window(), apply(), etc] in b/w the two
+* Flink programs are inherently parallel and distributed which means that the
+ operators that operate on streaming dataflows are spread across multiple nodes
+ in the flink cluster
+* Streams are composed of stream partitions [they work on subset of streams]
+ [each operator outputs data into next stage called stream partitions]
+* Operators are composed of operator subtasks
+* subtasks are independent, may be executed on different threads or possibly on
+  different machines or in different containers
+* Transporting data between operators can be done in two ways:
+  1. Forwarding(one-to-one) Pattern
+    > Preserve partitioning and order of elements [not shuffled or re-ordered]
+  2. Redistributing Pattern
+    > each operator subtask sends data to different target subtasks
+
+
+
+- Job Manager
+
+* Coordinates distributed execution of Flink Applications
+* Schedules tasks, manages failures
+* Coordinates checkpoint and recovery [from recently saved checkpoint]
+
+  > Job manager receives JobGraph
+  > DAG of operators and intermediate results
+  > Transforms JobGraph into Execution Graphs [difference b/w JobGraph and
+  ExecutionGraphs is that this is parallel in nature]
+  > EG is parallelized, contains one vertex per parallel subtask
+
+* JM has three different components to perform it's operations:
+
+  1. Resource manager
+    > allocation, de-allocation and provisioning of a cluster
+    > assigns resources to individual jobs using task slots [smallest unit of
+    scheduling in a flink cluster]
+    > Flink uses multiple resource managers for different environment [like one
+    for YARN, one for kubernetes, etc]
+
+  2. Dispatcher
+    > REST interface to submit applications for execution and starts a new job
+    master for each submitted job
+    > runs the flink web ui
+
+  3. Job Master
+    > manages execution of a single job. When we submit multiple job
+     applications to flink, every job will have a job master
+    > every job will have one job master and one or more task masters
+
+  4. Task Manager [workers]
+
+    > they execute the work of the dataflow
+    > the actual operators defined in the code are executed by the TM
+    > also responsible for buffering and data exchange b/w operators
+    > they assign tasks using task slots
+
+- Task Slots
+
+* represents fixed subset of resources of the TM
+* it is the smallest unit of resource scheduling
+* number of task slots in a TM represents the number of concurrent processing
+tasks
+* multiple operators may execute in a task slot
+* each task slot contains task executor that executes tasks
+* operator subtask will be assigned to task slots within TM in order to make use
+of the resources
+
++-----------------------------------------------------+
+|                      Flink Client                   |
++-----------------------------------------------------+
+|                   +-------------+                   |
+|                   | Job Manager |                   |
+|                   | (Machine 1) |                   |
+|                   +-------------+                   |
+|                        |   |   |                     |
+|                        |   |   |                     |
+|               +--------+   +--------+               |
+|               |                    |                |
+|      +-----------------+  +-----------------+      |
+|      | Task Manager    |  | Task Manager    |      |
+|      | (Machine 2)     |  | (Machine 3)     |      |
+|      +-----------------+  +-----------------+      |
+|      |    Task Slot    |  |    Task Slot    |      |
+|      +-----------------+  +-----------------+      |
+|      |   Task          |  |   Task          |      |
+|      |   Executor      |  |   Executor      |      |
+|      | +-------------+ |  | +-------------+ |      |
+|      | | Operator    | |  | | Operator    | |      |
+|      | | Chain       | |  | | Chain       | |      |
+|      | +-------------+ |  | +-------------+ |      |
+|      | | Parallel    | |  | | Parallel    | |      |
+|      | | Threads     | |  | | Threads     | |      |
+|      | | (Subtasks)  | |  | | (Subtasks)  | |      |
+|      | +-------------+ |  | +-------------+ |      |
+|      +-----------------+  +-----------------+      |
++-----------------------------------------------------+
+|                |                |                   |
+|   Data Sources |    Data Sink   |    Job Results    |
+|                |                |                   |
++-----------------------------------------------------+
+
+
+* This represents the anatomy of a flink cluster running on three different
+ machines. In the diagram:
+ > The Flink client interacts with the Job Manager to submit jobs, monitor job
+  status, and retrieve results.
+ > The Job Manager coordinates and schedules jobs, and it can run on any
+  machine in the cluster (in this case, it's shown running on Machine 1).
+ > Each Task Manager is responsible for executing tasks and managing resources
+  on its respective machine.
+ > Data sources provide input data to the cluster, while data sinks receive the
+  processed output data.
+ > Job results are stored and can be accessed for monitoring and analysis.
+
+* The client can stay in Attached [can stay connected to receive progess]/Detached
+ mode with the clusters
+
+STEPS:
+* The JM receives the job graph which it later converts into execution graph
+ to execute the task
+* It then schedules the applications on TMs
+* TMs connect themselves to the JMs in the cluster and make themselves available
+ for the execution of tasks
